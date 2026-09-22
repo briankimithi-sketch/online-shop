@@ -28,6 +28,7 @@ class AuthController extends Controller
             'delivery_address' => $validated['delivery_address'],
         ]);
 
+        $user->load('role');
         $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([
@@ -52,6 +53,7 @@ class AuthController extends Controller
 
         /** @var User $user */
         $user = Auth::user();
+        $user->load('role');
         $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([
@@ -72,6 +74,7 @@ class AuthController extends Controller
     {
         /** @var User $user */
         $user = Auth::user();
+        $user->load('role');
 
         return response()->json($user);
     }

@@ -4,8 +4,67 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "30ede9cc2d9eecae449b0452a2292045",
+    "content-hash": "ced77eddb8bfe7ce1ea48a2417960339",
     "packages": [
+        {
+            "name": "abraham-flutterwave/laravel-payment",
+            "version": "2.1.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/bajoski34/Laravel.git",
+                "reference": "22662531e574f5b800d728b5a00ca64380f54001"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/bajoski34/Laravel/zipball/22662531e574f5b800d728b5a00ca64380f54001",
+                "reference": "22662531e574f5b800d728b5a00ca64380f54001",
+                "shasum": ""
+            },
+            "require": {
+                "ext-json": "*",
+                "illuminate/support": "^v8.83|^9.39|^10.0|^11.0 | ^12.0",
+                "php": "^7.4 || ^8.0"
+            },
+            "require-dev": {
+                "laravel/pint": "^1.2",
+                "nunomaduro/phpinsights": "^2.6",
+                "orchestra/testbench": "^7.11",
+                "pestphp/pest": "^1.22"
+            },
+            "type": "laravel-library",
+            "extra": {
+                "laravel": {
+                    "aliases": {
+                        "Flutterwave": "Flutterwave\\Payments\\Facades\\Flutterwave"
+                    },
+                    "providers": [
+                        "Flutterwave\\Payments\\Providers\\FlutterwaveServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Flutterwave\\Payments\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Flutterwave Developers",
+                    "email": "developers@flutterwavego.com",
+                    "homepage": "https://flutterwave.com/ng/"
+                }
+            ],
+            "description": "The Official Flutterwave Package for Laravel.",
+            "support": {
+                "issues": "https://github.com/bajoski34/Laravel/issues",
+                "source": "https://github.com/bajoski34/Laravel/tree/2.1.1"
+            },
+            "time": "2025-07-27T14:55:58+00:00"
+        },
         {
             "name": "brick/math",
             "version": "0.14.8",
@@ -507,6 +566,80 @@
                 }
             ],
             "time": "2025-03-06T22:45:56+00:00"
+        },
+        {
+            "name": "felixmuhoro/laravel-mpesa",
+            "version": "v1.2.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/felixmuhoro/laravel-mpesa.git",
+                "reference": "977f00a17ae736172708e4fca2f07f36b8015b79"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/felixmuhoro/laravel-mpesa/zipball/977f00a17ae736172708e4fca2f07f36b8015b79",
+                "reference": "977f00a17ae736172708e4fca2f07f36b8015b79",
+                "shasum": ""
+            },
+            "require": {
+                "illuminate/contracts": "^10.0|^11.0|^12.0|^13.0",
+                "illuminate/http": "^10.0|^11.0|^12.0|^13.0",
+                "illuminate/support": "^10.0|^11.0|^12.0|^13.0",
+                "php": "^8.1"
+            },
+            "require-dev": {
+                "mockery/mockery": "^1.6",
+                "orchestra/testbench": "^8.0|^9.0|^10.0|^11.0",
+                "phpunit/phpunit": "^10.0|^11.0|^12.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "aliases": {
+                        "Mpesa": "FelixMuhoro\\Mpesa\\Facades\\Mpesa"
+                    },
+                    "providers": [
+                        "FelixMuhoro\\Mpesa\\MpesaServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "FelixMuhoro\\Mpesa\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Felix Muhoro",
+                    "email": "hi@felixmuhoro.dev",
+                    "homepage": "https://felixmuhoro.dev",
+                    "role": "Developer"
+                }
+            ],
+            "description": "Modern, fully-typed M-Pesa Daraja 2.0 integration for Laravel 10 / 11 / 12. STK Push, C2B, B2C, callbacks, events, and an exhaustive result-code dictionary — battle-tested in production.",
+            "homepage": "https://github.com/felixmuhoro/laravel-mpesa",
+            "keywords": [
+                "B2C",
+                "c2b",
+                "daraja",
+                "kenya",
+                "laravel",
+                "lipa-na-mpesa",
+                "mpesa",
+                "payments",
+                "safaricom",
+                "stk-push"
+            ],
+            "support": {
+                "email": "hi@felixmuhoro.dev",
+                "issues": "https://github.com/felixmuhoro/laravel-mpesa/issues",
+                "source": "https://github.com/felixmuhoro/laravel-mpesa"
+            },
+            "time": "2026-05-02T18:55:35+00:00"
         },
         {
             "name": "fruitcake/php-cors",

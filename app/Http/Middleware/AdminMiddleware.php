@@ -16,7 +16,7 @@ class AdminMiddleware
         $user = $request->user();
 
         // User must be authenticated.
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'message' => 'Unauthenticated.',
             ], 401);
