@@ -48,10 +48,14 @@ pipeline {
                 sh '''
                     set -e
 
+                    echo "=== Creating fresh MySQL volume ==="
+
                     docker volume rm "$MYSQL_VOLUME" >/dev/null 2>&1 || true
                     docker volume create "$MYSQL_VOLUME"
 
                     docker rm -f "$MYSQL_CONTAINER" >/dev/null 2>&1 || true
+
+                    echo "=== Starting MySQL 8.0 ==="
 
                     docker run -d \
                         --name "$MYSQL_CONTAINER" \
@@ -64,12 +68,9 @@ pipeline {
                         -e MYSQL_ROOT_PASSWORD=root_password \
                         mysql:8.0
 
-                    echo "=== Waiting for MySQL to initialize (initial delay) ==="
-                    sleep 15
+                    echo "=== Waiting for MySQL to become ready ==="
 
-                    echo "=== Waiting for MySQL ==="
-
-                    for i in $(seq 1 90); do
+                    for i in $(seq 1 120); do
                         if docker exec "$MYSQL_CONTAINER" \
                             mysqladmin ping \
                             -h localhost \
@@ -77,11 +78,11 @@ pipeline {
                             -proot_password \
                             --silent >/dev/null 2>&1; then
 
-                            echo "MySQL is ready."
+                            echo "MySQL server is ready."
                             break
                         fi
 
-                        if [ "$i" -eq 90 ]; then
+                        if [ "$i" -eq 120 ]; then
                             echo "MySQL failed to become ready."
                             docker logs "$MYSQL_CONTAINER"
                             exit 1
@@ -89,6 +90,38 @@ pipeline {
 
                         sleep 2
                     done
+
+                    echo "=== Verifying application database access ==="
+
+                    for i in $(seq 1 30); do
+                        if docker exec "$MYSQL_CONTAINER" \
+                            mysql \
+                            -uonline_shop \
+                            -ponline_shop_password \
+                            online_shop \
+                            -e "SELECT 1;" >/dev/null 2>&1; then
+
+                            echo "Application database access verified."
+                            break
+                        fi
+
+                        if [ "$i" -eq 30 ]; then
+                            echo "Application database access failed."
+                            docker logs "$MYSQL_CONTAINER"
+                            exit 1
+                        fi
+
+                        sleep 2
+                    done
+
+                    echo "=== MySQL verification successful ==="
+
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        -uonline_shop \
+                        -ponline_shop_password \
+                        online_shop \
+                        -e "SELECT DATABASE();"
                 '''
             }
         }
