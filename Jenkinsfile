@@ -64,21 +64,24 @@ pipeline {
                         -e MYSQL_ROOT_PASSWORD=root_password \
                         mysql:8.0
 
+                    echo "=== Waiting for MySQL to initialize (initial delay) ==="
+                    sleep 15
+
                     echo "=== Waiting for MySQL ==="
 
-                    for i in $(seq 1 60); do
+                    for i in $(seq 1 90); do
                         if docker exec "$MYSQL_CONTAINER" \
                             mysqladmin ping \
                             -h localhost \
-                            -u online_shop \
-                            -ponline_shop_password \
+                            -u root \
+                            -proot_password \
                             --silent >/dev/null 2>&1; then
 
                             echo "MySQL is ready."
                             break
                         fi
 
-                        if [ "$i" -eq 60 ]; then
+                        if [ "$i" -eq 90 ]; then
                             echo "MySQL failed to become ready."
                             docker logs "$MYSQL_CONTAINER"
                             exit 1
