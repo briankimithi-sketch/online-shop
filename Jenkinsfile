@@ -119,7 +119,12 @@ pipeline {
                     echo "=== Waiting for Laravel ==="
 
                     for i in $(seq 1 30); do
-                        if curl -fsS --connect-timeout 2 "http://online-shop-app-ci:8000" >/dev/null 2>&1; then
+                        if docker run --rm \
+                            --network "$NETWORK" \
+                            curlimages/curl:latest \
+                            -fsS --connect-timeout 2 \
+                            "http://$APP_CONTAINER:8000" \
+                            >/dev/null 2>&1; then
 
                             echo "Laravel is ready."
                             break
@@ -168,9 +173,11 @@ pipeline {
 
                     echo "=== Checking Laravel HTTP endpoint ==="
 
-                    curl -fsS \
-                        --connect-timeout 10 \
-                        "http://online-shop-app-ci:8000" \
+                    docker run --rm \
+                        --network "$NETWORK" \
+                        curlimages/curl:latest \
+                        -fsS --connect-timeout 10 \
+                        "http://$APP_CONTAINER:8000" \
                         >/dev/null
 
                     echo "Laravel HTTP health check passed."
