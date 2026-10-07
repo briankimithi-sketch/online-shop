@@ -68,50 +68,29 @@ pipeline {
                         -e MYSQL_ROOT_PASSWORD=root_password \
                         mysql:8.0
 
-                    echo "=== Waiting for MySQL to become ready ==="
+                    echo "=== Waiting for MySQL application database access ==="
 
-                    for i in $(seq 1 120); do
-                        if docker exec "$MYSQL_CONTAINER" \
-                            mysqladmin ping \
-                            -h localhost \
-                            -u root \
-                            -proot_password \
-                            --silent >/dev/null 2>&1; then
-
-                            echo "MySQL server is ready."
-                            break
-                        fi
-
-                        if [ "$i" -eq 120 ]; then
-                            echo "MySQL failed to become ready."
-                            docker logs "$MYSQL_CONTAINER"
-                            exit 1
-                        fi
-
-                        sleep 2
-                    done
-
-                    echo "=== Verifying application database access ==="
-
-                    for i in $(seq 1 30); do
+                    for i in $(seq 1 180); do
                         if docker exec "$MYSQL_CONTAINER" \
                             mysql \
+                            -h 127.0.0.1 \
                             -uonline_shop \
                             -ponline_shop_password \
                             online_shop \
                             -e "SELECT 1;" >/dev/null 2>&1; then
 
-                            echo "Application database access verified."
+                            echo "MySQL application database is ready."
                             break
                         fi
 
-                        if [ "$i" -eq 30 ]; then
-                            echo "Application database access failed."
+                        echo "Waiting for MySQL... attempt $i/180"
+                        sleep 2
+
+                        if [ "$i" -eq 180 ]; then
+                            echo "MySQL failed to become application-ready."
                             docker logs "$MYSQL_CONTAINER"
                             exit 1
                         fi
-
-                        sleep 2
                     done
 
                     echo "=== MySQL verification successful ==="
