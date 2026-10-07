@@ -118,19 +118,19 @@ pipeline {
 
                     echo "=== Waiting for Laravel ==="
 
-                    for i in $(seq 1 30); do
+                    for i in $(seq 1 60); do
                         if docker run --rm \
                             --network "$NETWORK" \
                             curlimages/curl:latest \
-                            -fsS --connect-timeout 2 \
-                            "http://$APP_CONTAINER:8000" \
+                            -fsS --connect-timeout 10 --max-time 15 \
+                            "http://$APP_CONTAINER:8000/up" \
                             >/dev/null 2>&1; then
 
                             echo "Laravel is ready."
                             break
                         fi
 
-                        if [ "$i" -eq 30 ]; then
+                        if [ "$i" -eq 60 ]; then
                             echo "Laravel failed to become ready."
                             docker logs "$APP_CONTAINER"
                             exit 1
