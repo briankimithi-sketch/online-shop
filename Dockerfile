@@ -22,11 +22,20 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 COPY . .
 
-RUN composer install \
-    --no-dev \
-    --no-interaction \
-    --prefer-dist \
-    --optimize-autoloader
+ARG INSTALL_DEV=false
+
+RUN if [ "$INSTALL_DEV" = "true" ]; then \
+        composer install \
+            --no-interaction \
+            --prefer-dist \
+            --optimize-autoloader; \
+    else \
+        composer install \
+            --no-dev \
+            --no-interaction \
+            --prefer-dist \
+            --optimize-autoloader; \
+    fi
 
 RUN mkdir -p storage/framework/cache \
     storage/framework/sessions \
