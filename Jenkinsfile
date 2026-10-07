@@ -116,7 +116,7 @@ pipeline {
                     echo "=== Waiting for Laravel ==="
 
                     for i in $(seq 1 30); do
-                        if curl -fsS                             --connect-timeout 2                             "http://localhost:$APP_PORT"                             >/dev/null 2>&1; then
+                        if curl -fsS --connect-timeout 2 "http://online-shop-app-ci:8000" >/dev/null 2>&1; then
 
                             echo "Laravel is ready."
                             break
@@ -167,7 +167,7 @@ pipeline {
 
                     curl -fsS \
                         --connect-timeout 10 \
-                        "http://localhost:$APP_PORT" \
+                        "http://online-shop-app-ci:8000" \
                         >/dev/null
 
                     echo "Laravel HTTP health check passed."
