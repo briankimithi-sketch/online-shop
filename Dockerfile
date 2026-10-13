@@ -22,6 +22,9 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 COPY . .
 
+# Provide an empty environment file for Laravel when no .env is bundled.
+RUN touch .env
+
 ARG INSTALL_DEV=false
 
 RUN if [ "$INSTALL_DEV" = "true" ]; then \
