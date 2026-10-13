@@ -38,7 +38,7 @@ return [
     ],
 
     'cache' => [
-        'store' => env('MPESA_CACHE_STORE', null),
+        'store' => env('MPESA_CACHE_STORE') ?: config('cache.default'),
         'ttl' => (int) env('MPESA_CACHE_TTL', 3500),
         'key' => env('MPESA_CACHE_KEY', 'mpesa:access_token'),
     ],
