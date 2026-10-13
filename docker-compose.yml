@@ -1,114 +1,43 @@
-version: '3.8'
-
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: online-shop-app
-    restart: unless-stopped
-    working_dir: /var/www/html
-    volumes:
-      - ./:/var/www/html
-      - ./docker/nginx.conf:/etc/nginx/nginx.conf
-      - ./docker/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
     ports:
-      - "8000:80"
+      - "8090:8000"
     environment:
-      - APP_ENV=local
-      - APP_DEBUG=true
-      - DB_CONNECTION=mysql
-      - DB_HOST=db
-      - DB_PORT=3306
-      - DB_DATABASE=online_shop
-      - DB_USERNAME=root
-      - DB_PASSWORD=onlineshop
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8090
+      APP_KEY: "base64:M93suRWWvkf1FFMn7/UO2Oj0xGoQe08EoCSSE6EAxGM="
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: online_shop
+      DB_USERNAME: online_shop
+      DB_PASSWORD: online_shop_password
     depends_on:
-      - db
-      - redis
-    networks:
-      - online-shop-network
+      mysql:
+        condition: service_healthy
 
-  db:
+  mysql:
     image: mysql:8.0
-    container_name: online-shop-db
-    restart: unless-stopped
+    container_name: online-shop-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: onlineshop
       MYSQL_DATABASE: online_shop
       MYSQL_USER: online_shop
-      MYSQL_PASSWORD: onlineshop
-    volumes:
-      - db_data:/var/lib/mysql
+      MYSQL_PASSWORD: online_shop_password
+      MYSQL_ROOT_PASSWORD: root_password
     ports:
       - "3307:3306"
-    networks:
-      - online-shop-network
-
-  redis:
-    image: redis:7-alpine
-    container_name: online-shop-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
-      - redis_data:/data
-    networks:
-      - online-shop-network
-
-  queue:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: online-shop-queue
-    restart: unless-stopped
-    working_dir: /var/www/html
-    volumes:
-      - ./:/var/www/html
-    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
-    environment:
-      - APP_ENV=local
-      - APP_DEBUG=true
-      - DB_CONNECTION=mysql
-      - DB_HOST=db
-      - DB_PORT=3306
-      - DB_DATABASE=online_shop
-      - DB_USERNAME=root
-      - DB_PASSWORD=onlineshop
-    depends_on:
-      - db
-      - redis
-    networks:
-      - online-shop-network
-
-  scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: online-shop-scheduler
-    restart: unless-stopped
-    working_dir: /var/www/html
-    volumes:
-      - ./:/var/www/html
-    command: php artisan schedule:work
-    environment:
-      - APP_ENV=local
-      - APP_DEBUG=true
-      - DB_CONNECTION=mysql
-      - DB_HOST=db
-      - DB_PORT=3306
-      - DB_DATABASE=online_shop
-      - DB_USERNAME=root
-      - DB_PASSWORD=onlineshop
-    depends_on:
-      - db
-    networks:
-      - online-shop-network
+      - online-shop-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "online_shop", "-ponline_shop_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
-  db_data:
-  redis_data:
-
-networks:
-  online-shop-network:
-    driver: bridge
+  online-shop-mysql-data:
