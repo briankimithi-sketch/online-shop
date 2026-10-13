@@ -115,11 +115,11 @@ pipeline {
                     echo "Waiting for MySQL to become ready..."
 
                     attempt=1
-                    max_attempts=120
+                    max_attempts=150
 
                     until docker exec "$MYSQL_CONTAINER" \
                         mysqladmin ping \
-                        --host=127.0.0.1 \
+                        --socket=/var/run/mysqld/mysqld.sock \
                         --user=root \
                         "--password=$MYSQL_ROOT_PASSWORD" \
                         --silent >/dev/null 2>&1
@@ -226,7 +226,7 @@ pipeline {
                     max_attempts=60
 
                     until docker exec "$APP_CONTAINER" \
-                        php artisan migrate:status >/dev/null 2>&1
+                        php artisan db:show >/dev/null 2>&1
                     do
                         if [ "$attempt" -ge "$max_attempts" ]; then
                             echo "========== LARAVEL DATABASE ERROR =========="
@@ -236,7 +236,7 @@ pipeline {
 
                             echo "========== TESTING MYSQL CONNECTIVITY =========="
                             docker exec "$APP_CONTAINER" \
-                                mysql --host=mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" --execute="SELECT 1;" 2>&1 || true
+                                mysql --ssl-mode=DISABLED --host=mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" --execute="SELECT 1;" 2>&1 || true
 
                             echo "========== MYSQL CONTAINER LOGS =========="
                             docker logs --tail 100 "$MYSQL_CONTAINER" || true
