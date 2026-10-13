@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -141,6 +142,23 @@ pipeline {
                         --user=root \
                         "--password=$MYSQL_ROOT_PASSWORD" \
                         --execute="SELECT VERSION();"
+
+                    echo "Verifying MySQL user and database..."
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="SELECT User, Host FROM mysql.user WHERE User='$MYSQL_USER';"
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="SHOW DATABASES LIKE '$MYSQL_DATABASE';"
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user="$MYSQL_USER" \
+                        "--password=$MYSQL_PASSWORD" \
+                        --execute="SELECT 1;"
                 '''
             }
         }
@@ -211,9 +229,21 @@ pipeline {
                         php artisan migrate:status >/dev/null 2>&1
                     do
                         if [ "$attempt" -ge "$max_attempts" ]; then
-                            echo "ERROR: Laravel could not connect to MySQL."
-                            docker logs --tail 150 "$MYSQL_CONTAINER" || true
-                            docker logs --tail 150 "$APP_CONTAINER" || true
+                            echo "========== LARAVEL DATABASE ERROR =========="
+
+                            docker exec "$APP_CONTAINER" \
+                                php artisan migrate:status 2>&1 || true
+
+                            echo "========== TESTING MYSQL CONNECTIVITY =========="
+                            docker exec "$APP_CONTAINER" \
+                                mysql --host=mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" --execute="SELECT 1;" 2>&1 || true
+
+                            echo "========== MYSQL CONTAINER LOGS =========="
+                            docker logs --tail 100 "$MYSQL_CONTAINER" || true
+
+                            echo "========== LARAVEL CONTAINER LOGS =========="
+                            docker logs --tail 100 "$APP_CONTAINER" || true
+
                             exit 1
                         fi
 
@@ -394,3 +424,4 @@ pipeline {
         }
     }
 }
+
