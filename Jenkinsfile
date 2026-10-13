@@ -120,8 +120,8 @@ pipeline {
                     until docker exec "$MYSQL_CONTAINER" \
                         mysqladmin ping \
                         --socket=/var/run/mysqld/mysqld.sock \
-                        --user=root \
-                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --user="$MYSQL_USER" \
+                        "--password=$MYSQL_PASSWORD" \
                         --silent >/dev/null 2>&1
                     do
                         if [ "$attempt" -ge "$max_attempts" ]; then
@@ -139,20 +139,20 @@ pipeline {
 
                     docker exec "$MYSQL_CONTAINER" \
                         mysql \
-                        --user=root \
-                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --user="$MYSQL_USER" \
+                        "--password=$MYSQL_PASSWORD" \
                         --execute="SELECT VERSION();"
 
                     echo "Verifying MySQL user and database..."
                     docker exec "$MYSQL_CONTAINER" \
                         mysql \
-                        --user=root \
-                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --user="$MYSQL_USER" \
+                        "--password=$MYSQL_PASSWORD" \
                         --execute="SELECT User, Host FROM mysql.user WHERE User='$MYSQL_USER';"
                     docker exec "$MYSQL_CONTAINER" \
                         mysql \
-                        --user=root \
-                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --user="$MYSQL_USER" \
+                        "--password=$MYSQL_PASSWORD" \
                         --execute="SHOW DATABASES LIKE '$MYSQL_DATABASE';"
                     docker exec "$MYSQL_CONTAINER" \
                         mysql \
