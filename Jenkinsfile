@@ -135,8 +135,30 @@ pipeline {
                         sleep 2
                     done
 
-                    echo "MySQL is ready."
+                    echo "MySQL server is responding."
 
+                    echo "========== MYSQL ROOT DIAGNOSTICS =========="
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="SELECT VERSION();"
+
+                    echo "========== MYSQL ACCOUNT DETAILS =========="
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="SELECT User, Host, plugin FROM mysql.user WHERE User='$MYSQL_USER';"
+
+                    echo "========== MYSQL USER GRANTS =========="
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="SHOW GRANTS FOR '$MYSQL_USER'@'%';" || true
+
+                    echo "========== TESTING APPLICATION CREDENTIALS =========="
                     docker exec "$MYSQL_CONTAINER" \
                         mysql \
                         --user="$MYSQL_USER" \
