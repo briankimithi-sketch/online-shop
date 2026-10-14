@@ -136,8 +136,12 @@ pipeline {
                     done
 
                     echo "MySQL server is responding."
-                     echo "==========                     echo "========== ENSURING MYSQL USER AND PRIVILEGES =========="
-                    docker exec "$MYSQL_CONTAINER"                         mysql                         --user=root                         "--password=$MYSQL_ROOT_PASSWORD"                         --execute="
+                     echo "==========                     echo "==========                     echo "========== ENSURING MYSQL USER AND PRIVILEGES =========="
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="
                             CREATE USER IF NOT EXISTS '$MYSQL_USER'@'localhost' IDENTIFIED BY '$MYSQL_PASSWORD';
                             CREATE USER IF NOT EXISTS '$MYSQL_USER'@'%' IDENTIFIED BY '$MYSQL_PASSWORD';
                             GRANT ALL PRIVILEGES ON `$MYSQL_DATABASE`.* TO '$MYSQL_USER'@'localhost';
