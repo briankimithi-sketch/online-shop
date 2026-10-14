@@ -135,6 +135,22 @@ pipeline {
                     done
 
                     echo "MySQL server is responding."
+                    echo "Verifying root credentials..."
+
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="SELECT VERSION(), CURRENT_USER();"
+
+                    echo "Inspecting application account..."
+
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="SELECT User, Host, plugin, account_locked FROM mysql.user WHERE User = '$MYSQL_USER';"
+
                     echo "Verifying application credentials and database..."
 
                     docker exec "$MYSQL_CONTAINER" \
