@@ -136,15 +136,59 @@ pipeline {
                     done
 
                     echo "MySQL server is responding."
+                     echo "==========                     echo "========== ENSURING MYSQL USER AND PRIVILEGES =========="
+                    docker exec "$MYSQL_CONTAINER"                         mysql                         --user=root                         "--password=$MYSQL_ROOT_PASSWORD"                         --execute="
+                            CREATE USER IF NOT EXISTS '$MYSQL_USER'@'localhost' IDENTIFIED BY '$MYSQL_PASSWORD';
+                            CREATE USER IF NOT EXISTS '$MYSQL_USER'@'%' IDENTIFIED BY '$MYSQL_PASSWORD';
+                            GRANT ALL PRIVILEGES ON `$MYSQL_DATABASE`.* TO '$MYSQL_USER'@'localhost';
+                            GRANT ALL PRIVILEGES ON `$MYSQL_DATABASE`.* TO '$MYSQL_USER'@'%';
+                            FLUSH PRIVILEGES;
+                        "
 
-                    echo "========== TESTING APPLICATION DATABASE ACCESS =========="
+                    echo "========== MYSQL ROOT DIAGNOSTICS =========="
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="SELECT VERSION();"
+
+                    echo "========== MYSQL ACCOUNT DETAILS =========="
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="SELECT User, Host, plugin FROM mysql.user WHERE User='$MYSQL_USER';"
+
+                    echo "========== MYSQL USER GRANTS =========="
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user=root \
+                        "--password=$MYSQL_ROOT_PASSWORD" \
+                        --execute="SHOW GRANTS FOR '$MYSQL_USER'@'%';" || true
+
+                    echo "========== TESTING APPLICATION CREDENTIALS =========="
                     docker exec "$MYSQL_CONTAINER" \
                         mysql \
                         --user="$MYSQL_USER" \
                         "--password=$MYSQL_PASSWORD" \
-                        --database="$MYSQL_DATABASE" \
-                        --execute="SELECT DATABASE(), VERSION(), 1;"
+                        --execute="SELECT VERSION();"
 
+                    echo "Verifying MySQL user and database..."
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user="$MYSQL_USER" \
+                        "--password=$MYSQL_PASSWORD" \
+                        --execute="SELECT User, Host FROM mysql.user WHERE User='$MYSQL_USER';"
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user="$MYSQL_USER" \
+                        "--password=$MYSQL_PASSWORD" \
+                        --execute="SHOW DATABASES LIKE '$MYSQL_DATABASE';"
+                    docker exec "$MYSQL_CONTAINER" \
+                        mysql \
+                        --user="$MYSQL_USER" \
+                        "--password=$MYSQL_PASSWORD" \
+                        --execute="SELECT 1;"
                 '''
             }
         }
