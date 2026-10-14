@@ -136,7 +136,7 @@ pipeline {
                     done
 
                     echo "MySQL server is responding."
-                     echo "==========                     echo "==========                     echo "========== ENSURING MYSQL USER AND PRIVILEGES =========="
+                     echo "==========                     echo "==========                     echo "==========                     echo "========== ENSURING MYSQL USER AND PRIVILEGES =========="
                     docker exec "$MYSQL_CONTAINER" \
                         mysql \
                         --user=root \
