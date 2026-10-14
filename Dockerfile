@@ -27,18 +27,31 @@ RUN touch .env
 
 ARG INSTALL_DEV=false
 
-RUN if [ "$INSTALL_DEV" = "true" ]; then \
-        composer install \
-            --no-interaction \
-            --prefer-dist \
-            --optimize-autoloader; \
+# Retry composer install to tolerate transient GitHub rate limiting (HTTP 429)
+# from codeload.github.com when fetching dist archives without an OAuth token.
+# Anonymous downloads are rate-limited per IP, so a few spaced-out attempts get
+# through once the limit window clears.
+RUN set -eu; \
+    if [ "$INSTALL_DEV" = "true" ]; then \
+        DEV_FLAG=""; \
     else \
-        composer install \
-            --no-dev \
+        DEV_FLAG="--no-dev"; \
+    fi; \
+    attempt=1; \
+    max_attempts=5; \
+    until composer install \
             --no-interaction \
             --prefer-dist \
-            --optimize-autoloader; \
-    fi
+            --no-progress \
+            --optimize-autoloader $DEV_FLAG; do \
+        if [ "$attempt" -ge "$max_attempts" ]; then \
+            echo "ERROR: composer install failed after $max_attempts attempts."; \
+            exit 1; \
+        fi; \
+        echo "composer install failed (attempt $attempt/$max_attempts); retrying..."; \
+        attempt=$((attempt + 1)); \
+        sleep $((attempt * 15)); \
+    done
 
 RUN mkdir -p storage/framework/cache \
     storage/framework/sessions \
