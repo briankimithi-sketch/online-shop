@@ -200,6 +200,7 @@ pipeline {
                         -e APP_URL="http://localhost:$APP_PORT" \
                         -e LOG_CHANNEL=stderr \
                         -e LOG_LEVEL=debug \
+                        -e SESSION_DRIVER=file \
                         -e DB_CONNECTION=mysql \
                         -e DB_HOST=mysql \
                         -e DB_PORT=3306 \

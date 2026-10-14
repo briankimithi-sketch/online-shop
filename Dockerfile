@@ -1,3 +1,19 @@
+
+# Stage 1: Compile frontend assets
+FROM node:22-alpine AS frontend
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY vite.config.js ./
+COPY resources ./resources
+
+RUN npm run build
+
+
+# Stage 2: Build the Laravel application
 FROM php:8.2-cli
 
 WORKDIR /var/www/html
@@ -22,15 +38,15 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 COPY . .
 
+# Copy the compiled Vite assets into Laravel's public directory
+COPY --from=frontend /app/public/build ./public/build
+
 # Provide an empty environment file for Laravel when no .env is bundled.
 RUN touch .env
 
 ARG INSTALL_DEV=false
 
-# Retry composer install to tolerate transient GitHub rate limiting (HTTP 429)
-# from codeload.github.com when fetching dist archives without an OAuth token.
-# Anonymous downloads are rate-limited per IP, so a few spaced-out attempts get
-# through once the limit window clears.
+# Retry Composer installation to tolerate transient GitHub rate limiting.
 RUN set -eu; \
     if [ "$INSTALL_DEV" = "true" ]; then \
         DEV_FLAG=""; \
@@ -48,7 +64,7 @@ RUN set -eu; \
             echo "ERROR: composer install failed after $max_attempts attempts."; \
             exit 1; \
         fi; \
-        echo "composer install failed (attempt $attempt/$max_attempts); retrying..."; \
+        echo "Composer install failed (attempt $attempt/$max_attempts); retrying..."; \
         attempt=$((attempt + 1)); \
         sleep $((attempt * 15)); \
     done
@@ -56,9 +72,8 @@ RUN set -eu; \
 RUN mkdir -p storage/framework/cache \
     storage/framework/sessions \
     storage/framework/views \
-    bootstrap/cache
-
-RUN chmod -R 775 storage bootstrap/cache
+    bootstrap/cache \
+    && chmod -R 775 storage bootstrap/cache
 
 EXPOSE 8000
 
