@@ -135,8 +135,8 @@ pipeline {
                         sleep 2
                     done
 
-                    echo "MySQL server is responding."
-                     echo "==========                     echo "==========                     echo "==========                     echo "========== ENSURING MYSQL USER AND PRIVILEGES =========="
+                    echo "                    echo "                    echo "                    echo "MySQL server is responding."
+                    echo "========== ENSURING MYSQL USER AND PRIVILEGES =========="
                     docker exec "$MYSQL_CONTAINER" \
                         mysql \
                         --user=root \
@@ -171,7 +171,7 @@ pipeline {
                         --execute="SHOW GRANTS FOR '$MYSQL_USER'@'%';" || true
 
                     echo "========== TESTING APPLICATION CREDENTIALS =========="
-                    docker exec "$MYSQL_CONTAINER" \
+SQL_CONTAINER" \
                         mysql \
                         --user="$MYSQL_USER" \
                         "--password=$MYSQL_PASSWORD" \
