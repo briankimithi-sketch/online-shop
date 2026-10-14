@@ -115,13 +115,29 @@ pipeline {
                     echo "Waiting for MySQL to become ready..."
 
                     attempt=1
-                    max_attempts=150
+                    max_attempts=300
 
+                    # NOTE: `mysqladmin ping` is NOT a reliable readiness signal for the
+                    # official MySQL image. On first run the entrypoint starts a temporary,
+                    # socket-only server (no TCP listener) whose root password is still empty,
+                    # then runs the init SQL, then restarts the REAL server on TCP port 3306.
+                    # `mysqladmin ping` returns success even when authentication fails, so the
+                    # old loop exited during initialization and the authenticated query that
+                    # followed died with "ERROR 1045 Access denied".
+                    #
+                    # We therefore wait until we can authenticate as root over TCP on the real
+                    # server (port 3306). The temporary init server has no TCP listener, and the
+                    # root password is only applied once initialization has finished, so this
+                    # succeeds exactly when MySQL is genuinely ready.
                     until docker exec "$MYSQL_CONTAINER" \
-                        mysqladmin ping \
+                        mysql \
+                        --protocol=TCP \
+                        --host=127.0.0.1 \
+                        --port=3306 \
                         --user=root \
                         "--password=$MYSQL_ROOT_PASSWORD" \
-                        --silent >/dev/null 2>&1
+                        --silent \
+                        --execute="SELECT 1;" >/dev/null 2>&1
                     do
                         if [ "$attempt" -ge "$max_attempts" ]; then
                             echo "ERROR: MySQL did not become ready."
