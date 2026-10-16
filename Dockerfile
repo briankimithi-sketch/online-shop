@@ -41,9 +41,6 @@ COPY . .
 # Copy the compiled Vite assets into Laravel's public directory
 COPY --from=frontend /app/public/build ./public/build
 
-# Provide an empty environment file for Laravel when no .env is bundled.
-RUN touch .env
-
 ARG INSTALL_DEV=false
 
 # Retry Composer installation to tolerate transient GitHub rate limiting.
@@ -77,4 +74,10 @@ RUN mkdir -p storage/framework/cache \
 
 EXPOSE 8000
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+# The built-in `php artisan serve` server forks a worker process for each HTTP
+# request. Those forked workers do NOT reliably inherit the environment
+# variables that were set on the container via `docker run -e`, even though the
+# parent process sees them fine. Laravel's DotEnv loader reads `.env` for every
+# request, so we write the runtime variables into `.env` here to guarantee the
+# web workers see them.
+CMD ["sh", "-c", "if [ -n \"${APP_KEY}\" ]; then echo \"APP_KEY=${APP_KEY}\" >> .env; fi; if [ -n \"${APP_ENV}\" ]; then echo \"APP_ENV=${APP_ENV}\" >> .env; fi; if [ -n \"${APP_DEBUG}\" ]; then echo \"APP_DEBUG=${APP_DEBUG}\" >> .env; fi; if [ -n \"${APP_URL}\" ]; then echo \"APP_URL=${APP_URL}\" >> .env; fi; if [ -n \"${LOG_CHANNEL}\" ]; then echo \"LOG_CHANNEL=${LOG_CHANNEL}\" >> .env; fi; if [ -n \"${LOG_LEVEL}\" ]; then echo \"LOG_LEVEL=${LOG_LEVEL}\" >> .env; fi; if [ -n \"${SESSION_DRIVER}\" ]; then echo \"SESSION_DRIVER=${SESSION_DRIVER}\" >> .env; fi; if [ -n \"${DB_CONNECTION}\" ]; then echo \"DB_CONNECTION=${DB_CONNECTION}\" >> .env; fi; if [ -n \"${DB_HOST}\" ]; then echo \"DB_HOST=${DB_HOST}\" >> .env; fi; if [ -n \"${DB_PORT}\" ]; then echo \"DB_PORT=${DB_PORT}\" >> .env; fi; if [ -n \"${DB_DATABASE}\" ]; then echo \"DB_DATABASE=${DB_DATABASE}\" >> .env; fi; if [ -n \"${DB_USERNAME}\" ]; then echo \"DB_USERNAME=${DB_USERNAME}\" >> .env; fi; if [ -n \"${DB_PASSWORD}\" ]; then echo \"DB_PASSWORD=${DB_PASSWORD}\" >> .env; fi; exec php artisan serve --host=0.0.0.0 --port=8000"]
