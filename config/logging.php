@@ -123,6 +123,13 @@ return [
             'handler' => NullHandler::class,
         ],
 
+        'flutterwave' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/flutterwave.log'),
+            'level' => env('LOG_LEVEL', 'debug'),
+            'replace_placeholders' => true,
+        ],
+
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
         ],

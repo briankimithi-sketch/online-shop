@@ -62,6 +62,10 @@ Route::post('/register', [AuthController::class, 'register'])
 Route::post('/login', [AuthController::class, 'login'])
     ->name('login');
 
+Route::get('/user', [AuthController::class, 'userInfo'])
+    ->middleware('auth:sanctum')
+    ->name('user.info');
+
 /*
 |--------------------------------------------------------------------------
 | Public Product Routes

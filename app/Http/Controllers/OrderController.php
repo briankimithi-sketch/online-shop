@@ -54,34 +54,49 @@ class OrderController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'product_id' => 'required|integer|exists:products,id',
-            'quantity' => 'required|integer|min:1',
+            'product_id' => 'required_without:items|integer|exists:products,id',
+            'quantity' => 'required_without:items|integer|min:1',
+            'items' => 'required_without:product_id|array',
+            'items.*.product_id' => 'required_with:items|integer|exists:products,id',
+            'items.*.quantity' => 'required_with:items|integer|min:1',
+            'delivery_address' => 'nullable|string',
+            'phone' => 'nullable|string',
         ]);
 
-        $order = Order::create([
-            'user_id' => $request->user()->id,
-            'product_id' => $validated['product_id'],
-            'quantity' => $validated['quantity'],
-        ]);
+        // The checkout form sends an `items` array. The Order model stores a
+        // single product per order, so we create one order per item.
+        $items = isset($validated['items'])
+            ? $validated['items']
+            : [['product_id' => $validated['product_id'], 'quantity' => $validated['quantity']]];
 
-        // Load the product to calculate the payment amount.
-        $order->load('product');
+        $createdOrders = [];
 
-        $amount = $order->product->price * $order->quantity;
+        foreach ($items as $item) {
+            $order = Order::create([
+                'user_id' => $request->user()->id,
+                'product_id' => $item['product_id'],
+                'quantity' => $item['quantity'],
+            ]);
 
-        // Create a pending payment for the new order.
-        Payment::create([
-            'order_id' => $order->id,
-            'amount' => $amount,
-            'payment_status' => 'pending',
-        ]);
+            $order->load('product');
 
-        // Load the payment into the response.
-        $order->load('payment');
+            $amount = $order->product->price * $order->quantity;
+
+            $payment = Payment::create([
+                'order_id' => $order->id,
+                'amount' => $amount,
+                'payment_status' => 'pending',
+            ]);
+
+            $order->load('payment');
+
+            $createdOrders[] = $order;
+        }
 
         return response()->json([
             'message' => 'Order created successfully.',
-            'order' => $order,
+            'order' => $createdOrders[0] ?? null,
+            'orders' => $createdOrders,
         ], 201);
     }
 

@@ -89,13 +89,27 @@ class MpesaService
         }
     }
 
-    /**
-     * Query STK Push status
-     */
+/**
+      * Query STK Push status
+      */
     public function queryStkPush(string $checkoutRequestId): array
     {
         try {
             $response = $this->mpesa->stkQuery($checkoutRequestId);
+
+            // The StkQueryResponse DTO does not expose mpesaReceiptNumber directly.
+            // It is available inside the raw callback metadata when the payment
+            // has completed.
+            $receiptNumber = null;
+            $metadata = $response->raw['CallbackMetadata']['CallbackMetaData'] ?? null;
+            if (is_array($metadata)) {
+                foreach ($metadata as $entry) {
+                    if (isset($entry['Name']) && $entry['Name'] === 'MpesaReceiptNumber') {
+                        $receiptNumber = $entry['Value'] ?? null;
+                        break;
+                    }
+                }
+            }
 
             return [
                 'success' => true,
@@ -106,7 +120,7 @@ class MpesaService
                 'is_completed' => $response->isCompleted(),
                 'is_failed' => $response->isFailed(),
                 'is_pending' => $response->isPending(),
-                'mpesa_receipt_number' => $response->mpesaReceiptNumber,
+                'mpesa_receipt_number' => $receiptNumber,
             ];
         } catch (\Exception $e) {
             Log::error('M-Pesa STK Query failed', [
