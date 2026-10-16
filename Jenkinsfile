@@ -344,6 +344,23 @@ pipeline {
                 sh '''
                     set -u
 
+                    echo "========== CHECKING RUNTIME APP KEY =========="
+
+                    docker exec "$APP_CONTAINER" php -r '
+                        $key = getenv("APP_KEY");
+                        echo "Container APP_KEY present: " . (!empty($key) ? "yes" : "no") . PHP_EOL;
+                        echo "Container APP_KEY length: " . strlen((string) $key) . PHP_EOL;
+                    '
+
+                    docker exec "$APP_CONTAINER" php -r '
+                        require "vendor/autoload.php";
+                        $app = require "bootstrap/app.php";
+                        $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap();
+                        $key = config("app.key");
+                        echo "Laravel config key present: " . (!empty($key) ? "yes" : "no") . PHP_EOL;
+                        echo "Laravel config key length: " . strlen((string) $key) . PHP_EOL;
+                    '
+
                     echo "========== CHECKING HOMEPAGE =========="
 
                     if docker run --rm \
