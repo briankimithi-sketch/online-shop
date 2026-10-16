@@ -66,9 +66,13 @@ Route::get('/user', [AuthController::class, 'userInfo'])
     ->middleware('auth:sanctum')
     ->name('user.info');
 
+Route::post('/logout', [AuthController::class, 'logout'])
+    ->middleware('auth:sanctum')
+    ->name('logout');
+
 /*
-|--------------------------------------------------------------------------
-| Public Product Routes
+ |--------------------------------------------------------------------------
+ | Public Product Routes
 |--------------------------------------------------------------------------
 |
 | Anyone can view products without logging in.
