@@ -32,12 +32,16 @@ class ProductController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name' => 'required|string',
-            'price' => 'required|string',
-            'description' => 'required|string',
-            'category' => 'required|string',
-            'image' => 'required|string',
+            'name' => 'required|string|max:255',
+            'price' => 'required|numeric|min:0',
+            'description' => 'nullable|string',
+            'category' => 'required|string|max:255',
+            'image' => 'nullable|string|max:2048',
         ]);
+
+        $validated['price'] = (string) $validated['price'];
+        $validated['description'] = $validated['description'] ?? '';
+        $validated['image'] = $validated['image'] ?? '';
 
         $product = Product::create($validated);
 
@@ -69,16 +73,24 @@ class ProductController extends Controller
     public function update(Request $request, Product $product)
     {
         $validated = $request->validate([
-            'name' => 'required|string',
-            'price' => 'required|string',
-            'description' => 'required|string',
-            'category' => 'required|string',
-            'image' => 'required|string',
+            'name' => 'required|string|max:255',
+            'price' => 'required|numeric|min:0',
+            'description' => 'nullable|string',
+            'category' => 'required|string|max:255',
+            'image' => 'nullable|string|max:2048',
         ]);
 
-        $product->update($validated);
+        $validated['price'] = (string) $validated['price'];
+        $validated['description'] = $validated['description'] ?? '';
+        $validated['image'] = $validated['image'] ?? '';
 
-        return response()->json(['message' => 'Product updated successfully.'], 200);
+        $product->update($validated);
+        $product->refresh();
+
+        return response()->json([
+            'message' => 'Product updated successfully.',
+            'product' => $product,
+        ]);
     }
 
     /**

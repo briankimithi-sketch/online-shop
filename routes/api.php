@@ -98,24 +98,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | Products
-    |--------------------------------------------------------------------------
-    */
-
-    Route::post('/products', [ProductController::class, 'store'])
-        ->name('products.store');
-
-    Route::put('/products/{product}', [ProductController::class, 'update'])
-        ->name('products.update');
-
-    Route::patch('/products/{product}', [ProductController::class, 'update'])
-        ->name('products.update.patch');
-
-    Route::delete('/products/{product}', [ProductController::class, 'destroy'])
-        ->name('products.destroy');
-
-    /*
-    |--------------------------------------------------------------------------
     | Orders
     |--------------------------------------------------------------------------
     */
@@ -189,6 +171,30 @@ Route::middleware('auth:sanctum')->group(function () {
     */
 
     Route::resource('roles', RoleController::class);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Admin Product Management
+|--------------------------------------------------------------------------
+|
+| Only authenticated administrators can create, update or delete products.
+| Public product browsing remains available through the GET routes.
+|
+*/
+
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    Route::post('/products', [ProductController::class, 'store'])
+        ->name('products.store');
+
+    Route::put('/products/{product}', [ProductController::class, 'update'])
+        ->name('products.update');
+
+    Route::patch('/products/{product}', [ProductController::class, 'update'])
+        ->name('products.update.patch');
+
+    Route::delete('/products/{product}', [ProductController::class, 'destroy'])
+        ->name('products.destroy');
 });
 
 /*
