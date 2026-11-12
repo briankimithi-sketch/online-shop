@@ -26,7 +26,7 @@ onMounted(async () => {
   }
 });
 
-const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price / 100);
+const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
 
 const statCards = computed(() => [
   { title: 'Total Users', value: stats.value.total_users, icon: 'mdi-account-group', color: 'primary' },

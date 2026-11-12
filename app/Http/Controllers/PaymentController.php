@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Payment;
 use App\Services\FlutterwaveService;
 use App\Services\MpesaService;
+use App\Services\PaymentLifecycleService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -182,7 +183,7 @@ class PaymentController extends Controller
      * Admins can pay any payment.
      * Regular users can pay only their own payments.
      */
-    public function demoPay(Payment $payment)
+    public function demoPay(Payment $payment, PaymentLifecycleService $lifecycle)
     {
         $user = request()->user();
 
@@ -201,15 +202,19 @@ class PaymentController extends Controller
             ], 400);
         }
 
-        $payment->update([
-            'payment_status' => 'paid',
-        ]);
+        $lifecycle->markPaid($payment);
+        $payment = $payment->fresh(['order']);
+
+        if ($payment->payment_status !== 'paid') {
+            return response()->json([
+                'message' => 'This payment could not be marked as paid.',
+                'payment' => $payment,
+            ], 409);
+        }
 
         return response()->json([
             'message' => 'Demo payment successful.',
-            'payment' => $payment->fresh([
-                'order',
-            ]),
+            'payment' => $payment,
         ], 200);
     }
 
@@ -343,15 +348,16 @@ class PaymentController extends Controller
      */
     public function flutterwaveWebhook(Request $request, FlutterwaveService $flutterwave)
     {
-        // Verify webhook signature
-        $signature = $request->header('verif-hash');
-        $secretHash = config('flutterwave.secretHash');
+        // Verify the webhook signature without logging secret material.
+        $signature = (string) $request->header('verif-hash', '');
+        $secretHash = (string) config('flutterwave.secretHash', '');
 
-        if ($signature !== $secretHash) {
-            Log::warning('Flutterwave webhook: Invalid signature', [
-                'received' => $signature,
-                'expected' => $secretHash,
-            ]);
+        if (
+            $signature === ''
+            || $secretHash === ''
+            || ! hash_equals($secretHash, $signature)
+        ) {
+            Log::warning('Flutterwave webhook: Invalid or missing signature');
 
             return response()->json(['message' => 'Invalid signature'], 401);
         }
@@ -383,17 +389,17 @@ class PaymentController extends Controller
 
             case 'payment.failed':
             case 'charge.failed':
-                $payment = Payment::where('flutterwave_tx_ref', $txRef)->first();
-                if ($payment) {
-                    $payment->update([
-                        'payment_status' => 'failed',
-                        'flutterwave_meta' => array_merge($payment->flutterwave_meta ?? [], $payload['data'] ?? []),
-                    ]);
-                }
+                // The service independently verifies the transaction with
+                // Flutterwave before allowing a failed-state transition.
+                $result = $flutterwave->handleFailedCallback([
+                    'tx_ref' => $txRef,
+                    'callback_data' => $payload['data'] ?? [],
+                ]);
 
-                Log::info('Flutterwave webhook: Payment failed', [
+                Log::info('Flutterwave webhook: Failed event processed', [
                     'event' => $event,
                     'tx_ref' => $txRef,
+                    'success' => $result['success'],
                 ]);
                 break;
 
@@ -466,7 +472,12 @@ class PaymentController extends Controller
     /**
      * Query M-Pesa STK Push status.
      */
-    public function mpesaQuery(Request $request, Payment $payment, MpesaService $mpesa)
+    public function mpesaQuery(
+        Request $request,
+        Payment $payment,
+        MpesaService $mpesa,
+        PaymentLifecycleService $lifecycle
+    )
     {
         $user = $request->user();
 
@@ -494,18 +505,34 @@ class PaymentController extends Controller
             ], 500);
         }
 
-        // If completed, update payment
-        if ($result['is_completed']) {
-            $payment->update([
-                'payment_status' => 'paid',
-                'mpesa_receipt_number' => $result['mpesa_receipt_number'],
-                'paid_at' => now(),
-            ]);
+        $resultCode = $result['result_code'] ?? null;
+        $providerAttributes = [
+            'mpesa_result_code' => $resultCode !== null
+                ? (string) $resultCode
+                : null,
+            'mpesa_result_desc' => $result['result_desc'] ?? null,
+        ];
 
-            $order = $payment->order;
-            if ($order && $order->status !== 'paid') {
-                $order->update(['status' => 'paid']);
-            }
+        if (! empty($result['mpesa_receipt_number'])) {
+            $providerAttributes['mpesa_receipt_number'] =
+                $result['mpesa_receipt_number'];
+        }
+
+        // Only a completed query with result code 0 confirms payment.
+        if (
+            ! empty($result['is_completed'])
+            && is_numeric($resultCode)
+            && (string) $resultCode === '0'
+        ) {
+            $lifecycle->markPaid($payment, $providerAttributes);
+        } elseif (
+            // Only an explicitly failed query with a non-zero result
+            // code is allowed to restore reserved inventory.
+            ! empty($result['is_failed'])
+            && is_numeric($resultCode)
+            && (string) $resultCode !== '0'
+        ) {
+            $lifecycle->markFailed($payment, $providerAttributes);
         }
 
         return response()->json([
@@ -516,7 +543,7 @@ class PaymentController extends Controller
             'is_failed' => $result['is_failed'],
             'is_pending' => $result['is_pending'],
             'mpesa_receipt_number' => $result['mpesa_receipt_number'],
-            'payment' => $payment->fresh(['order']),
+            'payment' => $payment->fresh(['order', 'order.items.product']),
         ], 200);
     }
 

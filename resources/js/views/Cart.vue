@@ -12,7 +12,7 @@ const subtotal = computed(() => cart.total);
 const shipping = computed(() => subtotal.value > 5000 ? 0 : 500); // Free shipping over KES 50
 const total = computed(() => subtotal.value + shipping.value);
 
-const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price / 100);
+const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
 
 const updateQuantity = async (item, quantity) => {
   updating.value = item.id;

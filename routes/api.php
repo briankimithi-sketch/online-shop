@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CartController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\ProductController;
@@ -95,6 +96,16 @@ Route::get('/products/{product}', [ProductController::class, 'show'])
 */
 
 Route::middleware('auth:sanctum')->group(function () {
+
+    // Shopping cart: authenticated customers only.
+    Route::get('/cart', [CartController::class, 'index'])->name('cart.index');
+    Route::post('/cart', [CartController::class, 'store'])->name('cart.store');
+    Route::put('/cart/{id}', [CartController::class, 'update'])
+        ->whereNumber('id')->name('cart.update');
+    Route::delete('/cart/{id}', [CartController::class, 'destroy'])
+        ->whereNumber('id')->name('cart.destroy');
+
+
 
     /*
     |--------------------------------------------------------------------------

@@ -7,37 +7,32 @@ use Illuminate\Http\Request;
 
 class ProductController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        $products = Product::all();
-
-        return response()->json($products);
+        return response()->json(Product::all());
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
     public function create()
     {
-        //
-
+        return response()->json(['message' => 'Use the product API to create a product.'], 405);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
+        if ((int) $request->user()->role_id !== 1) {
+            return response()->json(['message' => 'Administrator access required.'], 403);
+        }
+
         $validated = $request->validate([
             'name' => 'required|string',
-            'price' => 'required|string',
+            'price' => ['required', 'numeric', 'min:0', 'regex:/^\d+(\.\d{1,2})?$/'],
             'description' => 'required|string',
             'category' => 'required|string',
             'image' => 'required|string',
+            'stock' => 'sometimes|integer|min:0',
         ]);
+
+        $validated['stock'] = $validated['stock'] ?? 0;
 
         $product = Product::create($validated);
 
@@ -47,47 +42,47 @@ class ProductController extends Controller
         ], 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(Product $product)
     {
         return response()->json($product);
     }
 
-    /**
-     * Show the form for editing the specified resource.
-     */
     public function edit(Product $product)
     {
-        //
+        return response()->json(['message' => 'Use the product API to update a product.'], 405);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, Product $product)
     {
+        if ((int) $request->user()->role_id !== 1) {
+            return response()->json(['message' => 'Administrator access required.'], 403);
+        }
+
         $validated = $request->validate([
-            'name' => 'required|string',
-            'price' => 'required|string',
-            'description' => 'required|string',
-            'category' => 'required|string',
-            'image' => 'required|string',
+            'name' => 'sometimes|required|string',
+            'price' => ['sometimes', 'required', 'numeric', 'min:0', 'regex:/^\d+(\.\d{1,2})?$/'],
+            'description' => 'sometimes|required|string',
+            'category' => 'sometimes|required|string',
+            'image' => 'sometimes|required|string',
+            'stock' => 'sometimes|required|integer|min:0',
         ]);
 
         $product->update($validated);
 
-        return response()->json(['message' => 'Product updated successfully.'], 200);
+        return response()->json([
+            'message' => 'Product updated successfully.',
+            'product' => $product->fresh(),
+        ]);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(Product $product)
+    public function destroy(Request $request, Product $product)
     {
+        if ((int) $request->user()->role_id !== 1) {
+            return response()->json(['message' => 'Administrator access required.'], 403);
+        }
+
         $product->delete();
 
-        return response()->json(['message' => 'Product deleted successfully.'], 200);
+        return response()->json(['message' => 'Product deleted successfully.']);
     }
 }

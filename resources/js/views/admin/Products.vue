@@ -52,7 +52,7 @@ const openCreate = () => {
 
 const openEdit = (product) => {
   editing.value = product;
-  form.value = { ...product, price: product.price / 100 };
+  form.value = { ...product, price: product.price };
   dialog.value = true;
 };
 
@@ -107,7 +107,7 @@ const deleteProduct = async () => {
   }
 };
 
-const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price / 100);
+const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
 </script>
 
 <template>

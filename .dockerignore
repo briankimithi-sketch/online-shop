@@ -10,3 +10,11 @@ storage/framework/sessions/*
 storage/framework/views/*
 Dockerfile
 docker-compose.yml
+
+# Local database and deployment backups
+backups/
+*.sql
+*.sql.gz
+*.backup-*
+Dockerfile.backup-*
+Jenkinsfile.backup-*

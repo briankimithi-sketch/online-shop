@@ -12,7 +12,7 @@ export const useCartStore = defineStore('cart', {
     total: (state) => state.items.reduce((sum, item) => sum + item.price * item.quantity, 0),
     formattedTotal: (state) => {
       const total = state.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-      return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(total / 100);
+      return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(total);
     },
   },
 

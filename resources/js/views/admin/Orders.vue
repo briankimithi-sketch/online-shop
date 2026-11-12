@@ -73,7 +73,7 @@ const formatDate = (date) => new Date(date).toLocaleDateString('en-KE', {
   minute: '2-digit',
 });
 
-const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price / 100);
+const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
 
 const getStatusColor = (status) => {
   const colors = {

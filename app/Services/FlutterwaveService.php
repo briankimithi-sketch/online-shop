@@ -6,61 +6,70 @@ use App\Models\Order;
 use App\Models\Payment;
 use Flutterwave\Payments\Flutterwave;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class FlutterwaveService
 {
     protected Flutterwave $flutterwave;
 
-    public function __construct()
-    {
-        $this->flutterwave = new Flutterwave;
+    protected PaymentLifecycleService $lifecycle;
+
+    public function __construct(
+        ?Flutterwave $flutterwave = null,
+        ?PaymentLifecycleService $lifecycle = null
+    ) {
+        $this->flutterwave = $flutterwave ?? new Flutterwave;
+        $this->lifecycle = $lifecycle ?? app(PaymentLifecycleService::class);
     }
 
     /**
-     * Initiate payment for an order
+     * Initiate Flutterwave checkout for the complete order.
      */
     public function initiatePayment(Payment $payment): array
     {
-        $order = $payment->order()->with('user', 'product')->firstOrFail();
+        $order = $payment->order()
+            ->with(['user', 'items.product'])
+            ->firstOrFail();
+
         $user = $order->user;
 
-        $txRef = $this->flutterwave->generateTransactionReference(
-            config('flutterwave.transactionPrefix')
-        );
-
-        $payment->update([
-            'flutterwave_tx_ref' => $txRef,
-            'flutterwave_meta' => [
-                'order_id' => $order->id,
-                'product_name' => $order->product->name,
-                'user_email' => $user->email,
-            ],
-        ]);
-
-        // Amount is stored in base currency units (e.g., KES), Flutterwave expects amount in base units
-        $amount = $payment->amount;
-
-        $paymentData = [
-            'tx_ref' => $txRef,
-            'amount' => $amount,
-            'currency' => config('flutterwave.currency'),
-            'redirect_url' => config('flutterwave.redirectUrl'),
-            'customer' => [
-                'email' => $user->email,
-                'name' => $user->name,
-                'phone_number' => $user->phone,
-            ],
-            'customizations' => [
-                'title' => config('flutterwave.title'),
-                'description' => config('flutterwave.description'),
-                'logo' => config('flutterwave.logo'),
-            ],
-            'meta' => $payment->flutterwave_meta,
-        ];
-
         try {
-            // Use standard redirect (hosted checkout)
-            $paymentLink = $this->flutterwave->use('modals')->render($paymentData, 'standard');
+            $txRef = $payment->flutterwave_tx_ref
+                ?: $this->flutterwave->generateTransactionReference(
+                    config('flutterwave.transactionPrefix')
+                );
+
+            $meta = array_merge($payment->flutterwave_meta ?? [], [
+                'order_id' => $order->id,
+                'user_email' => $user?->email,
+            ]);
+
+            $payment->update([
+                'flutterwave_tx_ref' => $txRef,
+                'flutterwave_meta' => $meta,
+            ]);
+
+            $paymentData = [
+                'tx_ref' => $txRef,
+                'amount' => $payment->amount,
+                'currency' => config('flutterwave.currency'),
+                'redirect_url' => config('flutterwave.redirectUrl'),
+                'customer' => [
+                    'email' => $user?->email,
+                    'name' => $user?->name,
+                    'phone_number' => $order->phone ?: $user?->phone,
+                ],
+                'customizations' => [
+                    'title' => config('flutterwave.title'),
+                    'description' => $this->productDescription($order),
+                    'logo' => config('flutterwave.logo'),
+                ],
+                'meta' => $meta,
+            ];
+
+            $paymentLink = $this->flutterwave
+                ->use('modals')
+                ->render($paymentData, 'standard');
 
             $payment->update([
                 'flutterwave_payment_link' => $paymentLink,
@@ -71,7 +80,7 @@ class FlutterwaveService
                 'payment_link' => $paymentLink,
                 'tx_ref' => $txRef,
             ];
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             Log::error('Flutterwave payment initiation failed', [
                 'payment_id' => $payment->id,
                 'error' => $e->getMessage(),
@@ -79,44 +88,44 @@ class FlutterwaveService
 
             return [
                 'success' => false,
-                'message' => 'Failed to initiate payment: '.$e->getMessage(),
+                'message' => 'Flutterwave could not be started. Please try again or contact support.',
             ];
         }
     }
 
     /**
-     * Verify payment via Flutterwave
+     * Verify a transaction directly with Flutterwave.
      */
     public function verifyPayment(string $txRef): array
     {
         try {
             $response = $this->flutterwave->verifyTransactionReference($txRef);
 
-            if (isset($response['status']) && $response['status'] === 'success') {
-                $data = $response['data'];
-
+            if (($response['status'] ?? null) !== 'success') {
                 return [
-                    'success' => true,
-                    'data' => [
-                        'transaction_id' => $data['id'] ?? null,
-                        'tx_ref' => $data['tx_ref'] ?? $txRef,
-                        'amount' => $data['amount'] ?? 0,
-                        'currency' => $data['currency'] ?? '',
-                        'status' => $data['status'] ?? '',
-                        'payment_type' => $data['payment_type'] ?? '',
-                        'customer' => $data['customer'] ?? [],
-                        'meta' => $data['meta'] ?? [],
-                        'created_at' => $data['created_at'] ?? null,
-                    ],
+                    'success' => false,
+                    'message' => $response['message'] ?? 'Payment verification failed.',
+                    'data' => $response['data'] ?? null,
                 ];
             }
 
+            $data = $response['data'] ?? [];
+
             return [
-                'success' => false,
-                'message' => $response['message'] ?? 'Payment verification failed',
-                'data' => $response['data'] ?? null,
+                'success' => true,
+                'data' => [
+                    'transaction_id' => $data['id'] ?? null,
+                    'tx_ref' => $data['tx_ref'] ?? null,
+                    'amount' => $data['amount'] ?? null,
+                    'currency' => $data['currency'] ?? null,
+                    'status' => $data['status'] ?? null,
+                    'payment_type' => $data['payment_type'] ?? null,
+                    'customer' => $data['customer'] ?? [],
+                    'meta' => $data['meta'] ?? [],
+                    'created_at' => $data['created_at'] ?? null,
+                ],
             ];
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             Log::error('Flutterwave verification failed', [
                 'tx_ref' => $txRef,
                 'error' => $e->getMessage(),
@@ -124,141 +133,245 @@ class FlutterwaveService
 
             return [
                 'success' => false,
-                'message' => 'Verification error: '.$e->getMessage(),
+                'message' => 'Flutterwave verification is temporarily unavailable.',
             ];
         }
     }
 
     /**
-     * Handle successful payment callback
+     * Handle a successful redirect or webhook after server-side verification.
      */
     public function handleCallback(array $data): array
     {
         $txRef = $data['tx_ref'] ?? null;
 
-        if (! $txRef) {
-            return ['success' => false, 'message' => 'Missing transaction reference'];
+        if (! is_string($txRef) || $txRef === '') {
+            return [
+                'success' => false,
+                'message' => 'Missing transaction reference.',
+            ];
         }
 
         $payment = Payment::where('flutterwave_tx_ref', $txRef)->first();
 
         if (! $payment) {
-            return ['success' => false, 'message' => 'Payment not found'];
-        }
-
-        // If already paid, return success
-        if ($payment->payment_status === 'paid') {
             return [
-                'success' => true,
-                'payment' => $payment->fresh(['order', 'order.product', 'order.user']),
-                'message' => 'Payment already processed',
+                'success' => false,
+                'message' => 'Payment not found.',
             ];
         }
 
-        // Verify with Flutterwave to prevent spoofing
+        if ($payment->payment_status === 'paid') {
+            return [
+                'success' => true,
+                'payment' => $payment->fresh(['order', 'order.items.product', 'order.user']),
+                'message' => 'Payment already processed.',
+            ];
+        }
+
+        if ($payment->payment_status !== 'pending') {
+            return [
+                'success' => false,
+                'message' => 'This payment is no longer pending.',
+                'payment' => $payment->fresh(['order']),
+            ];
+        }
+
         $verification = $this->verifyPayment($txRef);
 
         if (! $verification['success']) {
-            return ['success' => false, 'message' => 'Verification failed: '.$verification['message']];
+            return [
+                'success' => false,
+                'message' => $verification['message'],
+            ];
         }
 
-        $verifiedData = $verification['data'];
+        $verified = $verification['data'];
 
-        // Verify amount matches
-        if ((int) $verifiedData['amount'] !== (int) $payment->amount) {
-            Log::warning('Flutterwave amount mismatch', [
+        $amountMatches = is_numeric($verified['amount'])
+            && number_format((float) $verified['amount'], 2, '.', '')
+                === number_format((float) $payment->amount, 2, '.', '');
+
+        $currencyMatches = strtoupper((string) $verified['currency'])
+            === strtoupper((string) config('flutterwave.currency'));
+
+        $referenceMatches = hash_equals(
+            (string) $payment->flutterwave_tx_ref,
+            (string) $verified['tx_ref']
+        );
+
+        $transactionId = $verified['transaction_id'];
+
+        if (
+            $verified['status'] !== 'successful'
+            || ! $amountMatches
+            || ! $currencyMatches
+            || ! $referenceMatches
+            || ! is_scalar($transactionId)
+            || (string) $transactionId === ''
+        ) {
+            Log::warning('Flutterwave verification did not satisfy payment requirements', [
                 'payment_id' => $payment->id,
-                'expected' => $payment->amount,
-                'received' => $verifiedData['amount'],
+                'status' => $verified['status'],
+                'amount_matches' => $amountMatches,
+                'currency_matches' => $currencyMatches,
+                'reference_matches' => $referenceMatches,
+                'has_transaction_id' => is_scalar($transactionId)
+                    && (string) $transactionId !== '',
             ]);
-            // Still process but log warning
+
+            return [
+                'success' => false,
+                'message' => 'Flutterwave could not confirm this payment.',
+            ];
         }
 
-        // Update payment status
-        $payment->update([
-            'flutterwave_transaction_id' => $verifiedData['transaction_id'],
-            'payment_status' => 'paid',
-            'paid_at' => now(),
-            'flutterwave_meta' => array_merge($payment->flutterwave_meta ?? [], $verifiedData),
+        $this->lifecycle->markPaid($payment, [
+            'flutterwave_transaction_id' => (string) $transactionId,
+            'flutterwave_meta' => array_merge(
+                $payment->flutterwave_meta ?? [],
+                $verified
+            ),
         ]);
 
-        // Update order status if needed
-        $order = $payment->order;
-        if ($order && $order->status !== 'paid') {
-            $order->update(['status' => 'paid']);
-        }
+        $payment = $payment->fresh(['order', 'order.items.product', 'order.user']);
 
         return [
-            'success' => true,
-            'payment' => $payment->fresh(['order', 'order.product', 'order.user']),
+            'success' => $payment->payment_status === 'paid',
+            'payment' => $payment,
+            'message' => $payment->payment_status === 'paid'
+                ? 'Payment successfully verified.'
+                : 'Payment was already processed with a different status.',
         ];
     }
 
     /**
-     * Handle failed payment callback
+     * Handle a failed callback only after Flutterwave confirms failure.
      */
     public function handleFailedCallback(array $data): array
     {
         $txRef = $data['tx_ref'] ?? null;
 
-        if (! $txRef) {
-            return ['success' => false, 'message' => 'Missing transaction reference'];
+        if (! is_string($txRef) || $txRef === '') {
+            return [
+                'success' => false,
+                'message' => 'Missing transaction reference.',
+            ];
         }
 
         $payment = Payment::where('flutterwave_tx_ref', $txRef)->first();
 
         if (! $payment) {
-            return ['success' => false, 'message' => 'Payment not found'];
+            return [
+                'success' => false,
+                'message' => 'Payment not found.',
+            ];
         }
 
-        $payment->update([
-            'payment_status' => 'failed',
-            'flutterwave_meta' => array_merge($payment->flutterwave_meta ?? [], $data),
+        if ($payment->payment_status !== 'pending') {
+            return [
+                'success' => $payment->payment_status === 'failed',
+                'payment' => $payment->fresh(['order']),
+                'message' => 'Payment has already been processed.',
+            ];
+        }
+
+        $verification = $this->verifyPayment($txRef);
+
+        if (! $verification['success']) {
+            return [
+                'success' => false,
+                'message' => 'The payment status could not be verified.',
+            ];
+        }
+
+        $verified = $verification['data'];
+
+        if (
+            ($verified['tx_ref'] ?? null) !== $payment->flutterwave_tx_ref
+            || ($verified['status'] ?? null) !== 'failed'
+        ) {
+            return [
+                'success' => false,
+                'message' => 'Flutterwave has not confirmed a failed payment.',
+            ];
+        }
+
+        $this->lifecycle->markFailed($payment, [
+            'flutterwave_meta' => array_merge(
+                $payment->flutterwave_meta ?? [],
+                $verified,
+                ['callback_data' => $data]
+            ),
         ]);
 
+        $payment = $payment->fresh(['order', 'order.items.product', 'order.user']);
+
         return [
-            'success' => true,
-            'payment' => $payment->fresh(['order', 'order.product', 'order.user']),
+            'success' => $payment->payment_status === 'failed',
+            'payment' => $payment,
+            'message' => 'Failed payment processed.',
         ];
     }
 
     /**
-     * Get inline checkout data for frontend (Vue/React)
+     * Build inline checkout data for the frontend.
      */
     public function getInlineCheckoutData(Payment $payment): array
     {
-        $order = $payment->order()->with('user', 'product')->firstOrFail();
+        $order = $payment->order()
+            ->with(['user', 'items.product'])
+            ->firstOrFail();
+
         $user = $order->user;
 
-        $txRef = $payment->flutterwave_tx_ref ?? $this->flutterwave->generateTransactionReference(
-            config('flutterwave.transactionPrefix')
-        );
+        $txRef = $payment->flutterwave_tx_ref
+            ?: $this->flutterwave->generateTransactionReference(
+                config('flutterwave.transactionPrefix')
+            );
 
         if (! $payment->flutterwave_tx_ref) {
             $payment->update(['flutterwave_tx_ref' => $txRef]);
         }
 
-        // Amount is stored in base currency units
-        $amount = $payment->amount;
-
         return [
             'public_key' => config('flutterwave.publicKey'),
             'tx_ref' => $txRef,
-            'amount' => $amount,
+            'amount' => $payment->amount,
             'currency' => config('flutterwave.currency'),
             'redirect_url' => config('flutterwave.redirectUrl'),
             'customer' => [
-                'email' => $user->email,
-                'name' => $user->name,
-                'phone_number' => $user->phone,
+                'email' => $user?->email,
+                'name' => $user?->name,
+                'phone_number' => $order->phone ?: $user?->phone,
             ],
             'customizations' => [
                 'title' => config('flutterwave.title'),
-                'description' => config('flutterwave.description'),
+                'description' => $this->productDescription($order),
                 'logo' => config('flutterwave.logo'),
             ],
             'meta' => $payment->flutterwave_meta ?? [],
             'payment_options' => config('flutterwave.paymentType'),
         ];
+    }
+
+    /**
+     * Create a readable description for both new and legacy orders.
+     */
+    private function productDescription(Order $order): string
+    {
+        $items = $order->items ?? collect();
+
+        if ($items->isNotEmpty()) {
+            return $items->map(function ($item) {
+                $name = $item->product_name
+                    ?: $item->product?->name
+                    ?: 'Product';
+
+                return $name.' x '.$item->quantity;
+            })->implode(', ');
+        }
+
+        return 'Payment for order #'.$order->id;
     }
 }

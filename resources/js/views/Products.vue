@@ -40,7 +40,7 @@ const addToCart = async (product) => {
             <p class="text-body-2">{{ product.description }}</p>
             <div class="d-flex justify-space-between align-center mt-2">
               <v-chip color="primary" size="small">
-                {{ new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(product.price / 100) }}
+                {{ new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(product.price) }}
               </v-chip>
               <v-chip v-if="product.stock > 0" color="success" size="small">In Stock</v-chip>
               <v-chip v-else color="error" size="small">Out of Stock</v-chip>

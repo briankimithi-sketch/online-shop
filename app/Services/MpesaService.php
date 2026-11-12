@@ -8,28 +8,46 @@ use FelixMuhoro\Mpesa\Exceptions\AuthException;
 use FelixMuhoro\Mpesa\Exceptions\MpesaException;
 use FelixMuhoro\Mpesa\Mpesa;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class MpesaService
 {
     protected Mpesa $mpesa;
 
-    public function __construct()
-    {
-        $this->mpesa = app(Mpesa::class);
+    protected PaymentLifecycleService $lifecycle;
+
+    public function __construct(
+        ?Mpesa $mpesa = null,
+        ?PaymentLifecycleService $lifecycle = null
+    ) {
+        $this->mpesa = $mpesa ?? app(Mpesa::class);
+        $this->lifecycle = $lifecycle ?? app(PaymentLifecycleService::class);
     }
 
     /**
-     * Initiate STK Push payment for an order
+     * Initiate STK Push for the complete order.
      */
     public function initiateStkPush(Payment $payment): array
     {
-        $order = $payment->order()->with('user', 'product')->firstOrFail();
-        $user = $order->user;
+        $order = $payment->order()
+            ->with(['user', 'items.product'])
+            ->firstOrFail();
 
-        $phone = $user->phone;
+        $user = $order->user;
+        $phone = $user?->phone;
+
+        if (! is_string($phone) || trim($phone) === '') {
+            return [
+                'success' => false,
+                'message' => 'Your account has no registered phone number. Please update your profile before making an M-Pesa payment.',
+            ];
+        }
+
+        $phone = trim($phone);
+
         $amount = $payment->amount;
         $reference = "Order_{$order->id}";
-        $description = "Payment for {$order->product->name}";
+        $description = $this->productDescription($order);
 
         try {
             $response = $this->mpesa->stkPush(
@@ -40,7 +58,6 @@ class MpesaService
                 callbackUrl: config('mpesa.stk.callback_url')
             );
 
-            // Store checkout request ID for querying
             $payment->update([
                 'mpesa_checkout_request_id' => $response->checkoutRequestId,
                 'mpesa_merchant_request_id' => $response->merchantRequestId,
@@ -74,9 +91,9 @@ class MpesaService
 
             return [
                 'success' => false,
-                'message' => 'Failed to initiate payment: '.$e->getMessage(),
+                'message' => 'Failed to initiate M-Pesa payment. Please try again.',
             ];
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             Log::error('M-Pesa unexpected error', [
                 'payment_id' => $payment->id,
                 'error' => $e->getMessage(),
@@ -89,22 +106,25 @@ class MpesaService
         }
     }
 
-/**
-      * Query STK Push status
-      */
+    /**
+     * Query the status of an STK Push.
+     *
+     * A failed query is not evidence of a failed payment.
+     */
     public function queryStkPush(string $checkoutRequestId): array
     {
         try {
             $response = $this->mpesa->stkQuery($checkoutRequestId);
 
-            // The StkQueryResponse DTO does not expose mpesaReceiptNumber directly.
-            // It is available inside the raw callback metadata when the payment
-            // has completed.
             $receiptNumber = null;
             $metadata = $response->raw['CallbackMetadata']['CallbackMetaData'] ?? null;
+
             if (is_array($metadata)) {
                 foreach ($metadata as $entry) {
-                    if (isset($entry['Name']) && $entry['Name'] === 'MpesaReceiptNumber') {
+                    if (
+                        isset($entry['Name'])
+                        && $entry['Name'] === 'MpesaReceiptNumber'
+                    ) {
                         $receiptNumber = $entry['Value'] ?? null;
                         break;
                     }
@@ -122,7 +142,7 @@ class MpesaService
                 'is_pending' => $response->isPending(),
                 'mpesa_receipt_number' => $receiptNumber,
             ];
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             Log::error('M-Pesa STK Query failed', [
                 'checkout_request_id' => $checkoutRequestId,
                 'error' => $e->getMessage(),
@@ -130,126 +150,169 @@ class MpesaService
 
             return [
                 'success' => false,
-                'message' => 'Query failed: '.$e->getMessage(),
+                'message' => 'M-Pesa payment status is temporarily unavailable.',
             ];
         }
     }
 
     /**
-     * Handle successful payment callback
+     * Handle an STK callback from Safaricom.
+     *
+     * ResultCode 0 confirms success. A non-zero ResultCode in a valid
+     * STK callback confirms failure. Missing or invalid result codes
+     * must never trigger an inventory restoration.
      */
     public function handleCallback(array $data): array
     {
         $checkoutRequestId = $data['CheckoutRequestID'] ?? null;
 
-        if (! $checkoutRequestId) {
-            return ['success' => false, 'message' => 'Missing CheckoutRequestID'];
+        if (! is_string($checkoutRequestId) || $checkoutRequestId === '') {
+            return [
+                'success' => false,
+                'message' => 'Missing CheckoutRequestID.',
+            ];
         }
 
-        $payment = Payment::where('mpesa_checkout_request_id', $checkoutRequestId)->first();
+        $payment = Payment::where(
+            'mpesa_checkout_request_id',
+            $checkoutRequestId
+        )->first();
 
         if (! $payment) {
-            Log::warning('M-Pesa callback: Payment not found', ['checkout_request_id' => $checkoutRequestId]);
-
-            return ['success' => false, 'message' => 'Payment not found'];
-        }
-
-        // If already processed, return success
-        if ($payment->payment_status === 'paid') {
-            return [
-                'success' => true,
-                'payment' => $payment->fresh(['order', 'order.product', 'order.user']),
-                'message' => 'Payment already processed',
-            ];
-        }
-
-        $resultCode = $data['ResultCode'] ?? null;
-        $resultDesc = $data['ResultDesc'] ?? null;
-        $mpesaReceiptNumber = $data['MpesaReceiptNumber'] ?? null;
-
-        // Store callback data
-        $payment->update([
-            'mpesa_receipt_number' => $mpesaReceiptNumber,
-            'mpesa_callback_data' => json_encode($data),
-            'mpesa_result_code' => $resultCode,
-            'mpesa_result_desc' => $resultDesc,
-        ]);
-
-        if ($resultCode === '0' || $resultCode === 0) {
-            // Payment successful
-            $payment->update([
-                'payment_status' => 'paid',
-                'paid_at' => now(),
-            ]);
-
-            // Update order status
-            $order = $payment->order;
-            if ($order && $order->status !== 'paid') {
-                $order->update(['status' => 'paid']);
-            }
-
-            return [
-                'success' => true,
-                'payment' => $payment->fresh(['order', 'order.product', 'order.user']),
-            ];
-        } else {
-            // Payment failed
-            $payment->update([
-                'payment_status' => 'failed',
+            Log::warning('M-Pesa callback: Payment not found', [
+                'checkout_request_id' => $checkoutRequestId,
             ]);
 
             return [
                 'success' => false,
-                'message' => $resultDesc ?? 'Payment failed',
-                'payment' => $payment->fresh(['order', 'order.product', 'order.user']),
+                'message' => 'Payment not found.',
             ];
         }
-    }
 
-    /**
-     * Handle failed payment callback
-     */
-    public function handleFailedCallback(array $data): array
-    {
-        $checkoutRequestId = $data['CheckoutRequestID'] ?? null;
-
-        if (! $checkoutRequestId) {
-            return ['success' => false, 'message' => 'Missing CheckoutRequestID'];
+        if (! array_key_exists('ResultCode', $data)) {
+            return [
+                'success' => false,
+                'message' => 'Missing M-Pesa result code.',
+            ];
         }
 
-        $payment = Payment::where('mpesa_checkout_request_id', $checkoutRequestId)->first();
+        $resultCode = $data['ResultCode'];
 
-        if (! $payment) {
-            return ['success' => false, 'message' => 'Payment not found'];
+        if (! is_numeric($resultCode)) {
+            return [
+                'success' => false,
+                'message' => 'Invalid M-Pesa result code.',
+            ];
         }
 
-        $payment->update([
-            'payment_status' => 'failed',
+        $resultCode = (string) $resultCode;
+        $resultDesc = $data['ResultDesc'] ?? null;
+        $receiptNumber = $data['MpesaReceiptNumber'] ?? null;
+
+        $attributes = [
             'mpesa_callback_data' => json_encode($data),
-            'mpesa_result_code' => $data['ResultCode'] ?? null,
-            'mpesa_result_desc' => $data['ResultDesc'] ?? null,
+            'mpesa_result_code' => $resultCode,
+            'mpesa_result_desc' => $resultDesc,
+        ];
+
+        if ($receiptNumber !== null) {
+            $attributes['mpesa_receipt_number'] = $receiptNumber;
+        }
+
+        if ($resultCode === '0') {
+            $this->lifecycle->markPaid($payment, $attributes);
+
+            $payment = $payment->fresh([
+                'order',
+                'order.items.product',
+                'order.user',
+            ]);
+
+            return [
+                'success' => $payment->payment_status === 'paid',
+                'payment' => $payment,
+                'message' => $payment->payment_status === 'paid'
+                    ? 'M-Pesa payment confirmed.'
+                    : 'Payment was already processed with a different status.',
+            ];
+        }
+
+        $this->lifecycle->markFailed($payment, $attributes);
+
+        $payment = $payment->fresh([
+            'order',
+            'order.items.product',
+            'order.user',
         ]);
 
         return [
-            'success' => true,
-            'payment' => $payment->fresh(['order', 'order.product', 'order.user']),
+            'success' => $payment->payment_status === 'failed',
+            'message' => $resultDesc ?: 'M-Pesa payment failed.',
+            'payment' => $payment,
         ];
     }
 
     /**
-     * Get inline checkout data for frontend (shows phone number for user to enter PIN)
+     * Handle a failed STK callback.
+     *
+     * Delegate to the same validation and lifecycle logic.
+     */
+    public function handleFailedCallback(array $data): array
+    {
+        if (! array_key_exists('ResultCode', $data)) {
+            return [
+                'success' => false,
+                'message' => 'Missing M-Pesa result code.',
+            ];
+        }
+
+        if (! is_numeric($data['ResultCode']) || (string) $data['ResultCode'] === '0') {
+            return [
+                'success' => false,
+                'message' => 'This is not a confirmed failed M-Pesa callback.',
+            ];
+        }
+
+        return $this->handleCallback($data);
+    }
+
+    /**
+     * Get inline checkout information for the frontend.
      */
     public function getInlineCheckoutData(Payment $payment): array
     {
-        $order = $payment->order()->with('user', 'product')->firstOrFail();
+        $order = $payment->order()
+            ->with(['user', 'items.product'])
+            ->firstOrFail();
+
         $user = $order->user;
 
         return [
-            'phone_number' => $user->phone,
+            'phone_number' => $user?->phone,
             'amount' => $payment->amount,
             'reference' => "Order_{$order->id}",
-            'description' => "Payment for {$order->product->name}",
+            'description' => $this->productDescription($order),
             'callback_url' => config('mpesa.stk.callback_url'),
         ];
+    }
+
+    /**
+     * Build a description for new multi-item orders and legacy orders.
+     */
+    private function productDescription(Order $order): string
+    {
+        $items = $order->items ?? collect();
+
+        if ($items->isNotEmpty()) {
+            return $items->map(function ($item) {
+                $name = $item->product_name
+                    ?: $item->product?->name
+                    ?: 'Product';
+
+                return $name.' x '.$item->quantity;
+            })->implode(', ');
+        }
+
+        return 'Payment for order #'.$order->id;
     }
 }

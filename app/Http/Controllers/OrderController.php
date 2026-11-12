@@ -4,108 +4,208 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    /**
-     * Display a listing of the orders.
-     *
-     * Admins see all orders.
-     * Regular users see only their own orders.
-     */
     public function index()
     {
-        try {
-            $query = Order::with([
-                'product',
-                'user',
-                'payment',
-            ])->latest();
+        $user = request()->user();
 
-            $user = request()->user();
+        $query = Order::with([
+            'items.product',
+            'product',
+            'user',
+            'payment',
+        ])->latest();
 
-            if ((int) $user->role_id !== 1) {
-                $query->where('user_id', $user->id);
-            }
-
-            $orders = $query->get();
-
-            return response()->json($orders);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Failed to fetch orders',
-                'error' => $e->getMessage(),
-            ], 500);
+        if ((int) $user->role_id !== 1) {
+            $query->where('user_id', $user->id);
         }
+
+        return response()->json($query->get());
     }
 
-    /**
-     * Show the form for creating a new order.
-     */
     public function create()
     {
-        //
+        return response()->json([
+            'message' => 'Use the order API to create an order.',
+        ], 405);
     }
 
-    /**
-     * Store a newly created order.
-     */
     public function store(Request $request)
     {
+        $user = $request->user();
+
         $validated = $request->validate([
             'product_id' => 'required_without:items|integer|exists:products,id',
             'quantity' => 'required_without:items|integer|min:1',
-            'items' => 'required_without:product_id|array',
+            'items' => 'required_without:product_id|array|min:1',
             'items.*.product_id' => 'required_with:items|integer|exists:products,id',
             'items.*.quantity' => 'required_with:items|integer|min:1',
-            'delivery_address' => 'nullable|string',
-            'phone' => 'nullable|string',
+            'delivery_address' => 'required|string|max:2000',
         ]);
 
-        // The checkout form sends an `items` array. The Order model stores a
-        // single product per order, so we create one order per item.
-        $items = isset($validated['items'])
-            ? $validated['items']
-            : [['product_id' => $validated['product_id'], 'quantity' => $validated['quantity']]];
+        if (! is_string($user->phone) || trim($user->phone) === '') {
+            throw ValidationException::withMessages([
+                'phone' => [
+                    'Your account has no registered phone number. Please update your profile before checkout.',
+                ],
+            ]);
+        }
 
-        $createdOrders = [];
+        $items = $validated['items'] ?? [[
+            'product_id' => $validated['product_id'],
+            'quantity' => $validated['quantity'],
+        ]];
+
+        // Aggregate duplicate product IDs to prevent stock-check bypasses.
+        $quantities = [];
 
         foreach ($items as $item) {
+            $id = (int) $item['product_id'];
+            $quantity = (int) $item['quantity'];
+
+            if (($quantities[$id] ?? 0) > PHP_INT_MAX - $quantity) {
+                throw ValidationException::withMessages([
+                    'items' => ['The requested quantity is too large.'],
+                ]);
+            }
+
+            $quantities[$id] = ($quantities[$id] ?? 0) + $quantity;
+        }
+
+        // Consistent lock ordering helps reduce deadlock risk.
+        ksort($quantities);
+
+        $order = DB::transaction(function () use (
+            $user,
+            $validated,
+            $quantities
+        ) {
+            $products = Product::query()
+                ->whereIn('id', array_keys($quantities))
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            if ($products->count() !== count($quantities)) {
+                throw ValidationException::withMessages([
+                    'items' => ['One or more products are no longer available.'],
+                ]);
+            }
+
+            $subtotal = 0;
+
+            // Validate all products and calculate prices before changing stock.
+            foreach ($quantities as $productId => $quantity) {
+                $product = $products->get($productId);
+
+                if ($product->stock < $quantity) {
+                    throw ValidationException::withMessages([
+                        'items' => [
+                            "Insufficient stock for {$product->name}. Available: {$product->stock}.",
+                        ],
+                    ]);
+                }
+
+                if (! is_numeric($product->price) || (float) $product->price < 0) {
+                    throw ValidationException::withMessages([
+                        'items' => ["Product {$product->name} has an invalid price."],
+                    ]);
+                }
+
+                $unitPrice = (int) round((float) $product->price);
+
+                if (
+                    $unitPrice > intdiv(PHP_INT_MAX, $quantity) ||
+                    $subtotal > PHP_INT_MAX - ($unitPrice * $quantity)
+                ) {
+                    throw ValidationException::withMessages([
+                        'items' => ['The checkout total is too large.'],
+                    ]);
+                }
+
+                $subtotal += $unitPrice * $quantity;
+            }
+
+            // Shipping: free above KSh 5,000; otherwise KSh 500.
+            $shipping = $subtotal > 5000 ? 0 : 500;
+            $total = $subtotal + $shipping;
+
+            // The database columns are unsigned integers.
+            $maxDatabaseInteger = 4294967295;
+
+            if (
+                $subtotal > $maxDatabaseInteger ||
+                $shipping > $maxDatabaseInteger ||
+                $total > $maxDatabaseInteger
+            ) {
+                throw ValidationException::withMessages([
+                    'items' => ['The checkout total exceeds the supported amount.'],
+                ]);
+            }
+
+            // Deduct each product's aggregated quantity once.
+            foreach ($quantities as $productId => $quantity) {
+                $products->get($productId)->decrement('stock', $quantity);
+            }
+
+            // Preserve legacy columns using the first product.
+            $firstProductId = array_key_first($quantities);
+            $firstQuantity = $quantities[$firstProductId];
+
             $order = Order::create([
-                'user_id' => $request->user()->id,
-                'product_id' => $item['product_id'],
-                'quantity' => $item['quantity'],
+                'user_id' => $user->id,
+                'product_id' => $firstProductId,
+                'quantity' => $firstQuantity,
+                'status' => 'pending',
+                'phone' => trim($user->phone),
+                'delivery_address' => $validated['delivery_address'],
+                'subtotal' => $subtotal,
+                'shipping' => $shipping,
+                'total' => $total,
             ]);
 
-            $order->load('product');
+            // One order can now contain multiple product lines.
+            foreach ($quantities as $productId => $quantity) {
+                $product = $products->get($productId);
 
-            $amount = $order->product->price * $order->quantity;
+                $order->items()->create([
+                    'product_id' => $product->id,
+                    'product_name' => $product->name,
+                    'quantity' => $quantity,
+                    'unit_price' => (int) round((float) $product->price),
+                ]);
+            }
 
+            // Exactly one payment for the entire checkout.
             $payment = Payment::create([
                 'order_id' => $order->id,
-                'amount' => $amount,
+                'amount' => $total,
                 'payment_status' => 'pending',
             ]);
 
-            $order->load('payment');
-
-            $createdOrders[] = $order;
-        }
+            return $order->load([
+                'items.product',
+                'product',
+                'user',
+                'payment',
+            ]);
+        }, 3);
 
         return response()->json([
             'message' => 'Order created successfully.',
-            'order' => $createdOrders[0] ?? null,
-            'orders' => $createdOrders,
+            'order' => $order,
+            'orders' => [$order],
+            'payment' => $order->payment,
         ], 201);
     }
 
-    /**
-     * Display the specified order.
-     *
-     * Admins can view any order.
-     * Regular users can only view their own orders.
-     */
     public function show(Order $order)
     {
         $user = request()->user();
@@ -121,6 +221,7 @@ class OrderController extends Controller
 
         return response()->json(
             $order->load([
+                'items.product',
                 'product',
                 'user',
                 'payment',
@@ -128,83 +229,24 @@ class OrderController extends Controller
         );
     }
 
-    /**
-     * Show the form for editing the specified order.
-     */
     public function edit(Order $order)
     {
-        //
+        return response()->json([
+            'message' => 'Order editing is not supported.',
+        ], 405);
     }
 
-    /**
-     * Update the specified order.
-     *
-     * Admins can update any order.
-     * Regular users can only update their own orders.
-     */
     public function update(Request $request, Order $order)
     {
-        $user = $request->user();
-
-        if (
-            (int) $user->role_id !== 1 &&
-            (int) $order->user_id !== (int) $user->id
-        ) {
-            return response()->json([
-                'message' => 'You are not authorized to update this order.',
-            ], 403);
-        }
-
-        $validated = $request->validate([
-            'product_id' => 'required|integer|exists:products,id',
-            'quantity' => 'required|integer|min:1',
-        ]);
-
-        $order->update($validated);
-
-        // Keep the payment amount synchronized with the order.
-        $order->load('product');
-
-        $payment = $order->payment;
-
-        if ($payment) {
-            $payment->update([
-                'amount' => $order->product->price * $order->quantity,
-            ]);
-        }
-
         return response()->json([
-            'message' => 'Order updated successfully.',
-            'order' => $order->fresh([
-                'product',
-                'payment',
-            ]),
-        ], 200);
+            'message' => 'Orders cannot be edited after checkout. Contact support if a correction is needed.',
+        ], 409);
     }
 
-    /**
-     * Remove the specified order.
-     *
-     * Admins can delete any order.
-     * Regular users can only delete their own orders.
-     */
     public function destroy(Order $order)
     {
-        $user = request()->user();
-
-        if (
-            (int) $user->role_id !== 1 &&
-            (int) $order->user_id !== (int) $user->id
-        ) {
-            return response()->json([
-                'message' => 'You are not authorized to delete this order.',
-            ], 403);
-        }
-
-        $order->delete();
-
         return response()->json([
-            'message' => 'Order deleted successfully.',
-        ], 200);
+            'message' => 'Orders cannot be deleted through this endpoint because inventory and payment records must remain consistent.',
+        ], 409);
     }
 }

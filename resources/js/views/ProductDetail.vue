@@ -24,7 +24,7 @@ onMounted(async () => {
   }
 });
 
-const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price / 100);
+const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
 
 const addToCart = async () => {
   if (!product.value) return;

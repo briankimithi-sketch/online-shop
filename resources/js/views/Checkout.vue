@@ -9,10 +9,13 @@ const cart = useCartStore();
 const router = useRouter();
 
 const form = ref({
-  phone: '',
   delivery_address: '',
   payment_method: 'mpesa', // 'mpesa' or 'flutterwave'
 });
+
+const registeredPhone = ref('');
+const profileLoading = ref(true);
+const profileError = ref('');
 
 const loading = ref(false);
 const error = ref('');
@@ -22,76 +25,117 @@ const subtotal = computed(() => cart.total);
 const shipping = computed(() => subtotal.value > 5000 ? 0 : 500);
 const total = computed(() => subtotal.value + shipping.value);
 
-const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price / 100);
+const formatPrice = (price) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(price);
 
 const paymentMethods = [
   { value: 'mpesa', label: 'M-Pesa (STK Push)', icon: 'mdi-cellphone' },
   { value: 'flutterwave', label: 'Flutterwave (Card/Mobile Money)', icon: 'mdi-credit-card' },
 ];
 
-onMounted(() => {
+onMounted(async () => {
   if (cart.items.length === 0) {
     router.push('/cart');
+    return;
   }
-  // Pre-fill user data if available
-  const auth = JSON.parse(localStorage.getItem('user') || '{}');
-  if (auth.phone) form.value.phone = auth.phone;
-  if (auth.delivery_address) form.value.delivery_address = auth.delivery_address;
+
+  try {
+    const response = await axios.get('/api/user');
+    const user = response.data;
+
+    registeredPhone.value =
+      typeof user.phone === 'string' ? user.phone.trim() : '';
+
+    form.value.delivery_address = user.delivery_address || '';
+
+    if (!registeredPhone.value) {
+      profileError.value =
+        'Your account has no registered phone number. Please update your profile before checkout.';
+    }
+  } catch (err) {
+    profileError.value =
+      err.response?.data?.message ||
+      'Unable to load your account details. Please sign in again and retry.';
+  } finally {
+    profileLoading.value = false;
+  }
 });
 
 const placeOrder = async () => {
-  if (!form.value.phone || !form.value.delivery_address) {
-    error.value = 'Please fill in all required fields';
+  if (!registeredPhone.value) {
+    error.value =
+      'A registered phone number is required. Please update your profile before checkout.';
+    return;
+  }
+
+  if (!form.value.delivery_address.trim()) {
+    error.value = 'Please enter your delivery address';
     return;
   }
 
   loading.value = true;
   error.value = '';
+  let createdOrderId = null;
 
   try {
-    // Create order
+    // Create the order and its single pending payment.
     const orderResponse = await axios.post('/api/orders', {
       items: cart.items.map(item => ({
         product_id: item.id,
         quantity: item.quantity,
-        price: item.price,
       })),
       delivery_address: form.value.delivery_address,
-      phone: form.value.phone,
-      total: total.value,
     });
 
     const order = orderResponse.data.order;
+    createdOrderId = order?.id;
 
-    // Create payment
-    const paymentResponse = await axios.post('/api/payments', {
-      order_id: order.id,
-      amount: total.value,
-      payment_status: 'pending',
-    });
+    // The backend already created this payment with the order.
+    const payment = orderResponse.data.payment;
 
-    const payment = paymentResponse.data.payment;
+    // Prevent accidental duplicate orders if provider initiation fails.
+    cart.clear();
 
-    // Initiate payment based on method
+    if (!payment?.id) {
+      throw new Error('The order was created, but its payment record was not returned.');
+    }
+
+    // Initiate payment using the payment returned by the order endpoint.
     if (form.value.payment_method === 'mpesa') {
-      const mpesaResponse = await axios.post(`/api/payments/${payment.id}/mpesa/stk-push`);
+      const mpesaResponse = await axios.post(
+        `/api/payments/${payment.id}/mpesa/stk-push`
+      );
+
       if (mpesaResponse.data.success) {
         processing.value = true;
-        // Poll for payment status
         pollMpesaStatus(payment.id);
       } else {
-        error.value = mpesaResponse.data.message || 'M-Pesa payment failed';
+        error.value = `Order #${createdOrderId} was created, but M-Pesa could not be started: ${
+          mpesaResponse.data.message || 'Please try again or contact support.'
+        }`;
       }
     } else {
-      const fwResponse = await axios.post(`/api/payments/${payment.id}/flutterwave/initiate`);
+      const fwResponse = await axios.post(
+        `/api/payments/${payment.id}/flutterwave/initiate`
+      );
+
       if (fwResponse.data.payment_link) {
         window.location.href = fwResponse.data.payment_link;
       } else {
-        error.value = fwResponse.data.message || 'Flutterwave payment failed';
+        error.value = `Order #${createdOrderId} was created, but Flutterwave could not be started: ${
+          fwResponse.data.message || 'Please try again or contact support.'
+        }`;
       }
     }
   } catch (err) {
-    error.value = err.response?.data?.message || 'Failed to place order';
+    const message =
+      err.response?.data?.message ||
+      err.message ||
+      'An unexpected error occurred';
+
+    error.value = createdOrderId
+      ? `Order #${createdOrderId} was created, but payment could not be started: ${message}. Please do not place the order again.`
+      : message;
+
     console.error(err);
   } finally {
     loading.value = false;
@@ -145,13 +189,24 @@ const pollMpesaStatus = async (paymentId) => {
           <v-card-title>Delivery Information</v-card-title>
           <v-card-text>
             <v-text-field
-              v-model="form.phone"
-              label="Phone Number"
-              placeholder="2547XXXXXXXX"
-              required
-              prefix="+"
+              :model-value="registeredPhone"
+              label="Registered M-Pesa Number"
+              readonly
+              :loading="profileLoading"
+              hint="This number is taken from your account and cannot be changed during checkout."
+              persistent-hint
               density="comfortable"
             />
+
+            <v-alert
+              v-if="profileError"
+              type="warning"
+              variant="tonal"
+              class="mb-3"
+            >
+              {{ profileError }}
+            </v-alert>
+
             <v-text-field
               v-model="form.delivery_address"
               label="Delivery Address"
@@ -215,7 +270,7 @@ const pollMpesaStatus = async (paymentId) => {
               block
               size="large"
               @click="placeOrder"
-              :disabled="loading || processing || cart.items.length === 0"
+              :disabled="loading || processing || profileLoading || !registeredPhone || cart.items.length === 0"
             >
               {{ processing ? 'Waiting for payment...' : loading ? 'Processing...' : `Place Order - ${formatPrice(total)}` }}
             </v-btn>
